@@ -21,7 +21,7 @@ HEADERS = {
 HUMAN_EVAL = os.environ['PWD'] + '/data/HumanEval.jsonl'
 OUT_FILE = os.environ['PWD'] + '/data/results_{}_{}.jsonl'
 
-def get_completion(prompt, num_tries=1, model='code-davinci-002'):
+def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
     if num_tries == 1:
         temperature = 0.2
     elif num_tries == 10:
@@ -49,7 +49,12 @@ def get_completion(prompt, num_tries=1, model='code-davinci-002'):
             return [choice['text'] for choice in json_out['choices']]
         except:
             print(json_out)
-            raise
+            if num_errors == 2:
+                raise
+            else:
+                time.sleep(30)
+                return get_completion(prompt, num_tries, model, num_errors+1)
+
 
 
 
