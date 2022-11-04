@@ -51,7 +51,7 @@ def get_completion(prompt, num_tries=1, model='code-davinci-002'):
             print(json_out)
             raise
 
-    
+
 
 def iter_hval():
     out = []
@@ -87,6 +87,8 @@ def get_results(num_tries=10, model='code-davinci-002'):
     tasks = []
     completion_times = []
     for line in tqdm.tqdm(iter_hval()):
+        start = time.time()
+
         prompt = line['prompt']
         task_id = line['task_id']
         # future = get_completion(semaphore, prompt, num_tries=num_tries, model=model)
@@ -96,6 +98,7 @@ def get_results(num_tries=10, model='code-davinci-002'):
         tasks.append((task_id, prompt, completions))
         # tasks.append(wrapped_future(task_id, prompt, future))
 
+        """
         num_requests = 0
         start_time = time.time()
         for idx, comp_time in list(enumerate(completion_times))[::-1]:
@@ -103,20 +106,22 @@ def get_results(num_tries=10, model='code-davinci-002'):
                 del completion_times[idx]
             else:
                 num_requests += 1
-        
+
         if num_requests >= 15:
             # Sleep until we have less than 19 requests in the last minute
-            time.sleep(60 - (time.time() - completion_times[0]))
+            #time.sleep(60 - (time.time() - completion_times[0]))
+        """
+        time.sleep(max(1, 4-(time.time() - start)))
 
         for idx, completion in enumerate(completions):
             out = {'task_id': task_id, 'completion': completion}
 
             if idx == 0:
                 pass_1_f.write(json.dumps(out) + '\n')
-            
+
             if idx < 10 and num_tries >= 10:
                 pass_10_f.write(json.dumps(out) + '\n')
-            
+
             if idx < 100 and num_tries >= 100:
                 pass_100_f.write(json.dumps(out) + '\n')
 
