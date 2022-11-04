@@ -55,7 +55,7 @@ def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
             if num_errors == 2:
                 raise
             else:
-                time.sleep(30)
+                time.sleep(30*(num_errors+1)+1)
                 return get_completion(prompt, num_tries, model, num_errors+1)
 
 
