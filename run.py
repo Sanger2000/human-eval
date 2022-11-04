@@ -2,12 +2,13 @@
 Runs the human eval dataset through code-davinci for a pass@k evaluation."""
 
 #import aiohttp
-import requests
 import asyncio
 import json
+import os
+import re
+import requests
 import tqdm
 import time
-import os
 
 from dotenv import load_dotenv
 
@@ -31,8 +32,6 @@ def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
     else:
         raise ValueError("num_tries must be 1, 10, or 100")
 
-    print('temp', temperature)
-    print('num tries', num_tries)
 
     with requests.Session() as session:
         result = session.post(
@@ -41,9 +40,10 @@ def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
             json={
                 "prompt": prompt,
                 "model": model,
-                "max_tokens": 512,
+                "max_tokens": 256,
                 "temperature": temperature,
                 "n": num_tries,
+                "stop": "def"
             }
         )
 
@@ -57,7 +57,6 @@ def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
             else:
                 time.sleep(30*(num_errors+1)+1)
                 return get_completion(prompt, num_tries, model, num_errors+1)
-
 
 
 
@@ -99,9 +98,25 @@ def get_results(num_tries=10, model='code-davinci-002'):
             out_f.write(json.dumps(out) + '\n')
 
 
+def remove_bloat(in_jsonl):
+    new_results = []
+    with open(in_jsonl, 'r') as f:
+        for line in f:
+            out = json.loads(line)
+            new_completion = ''
+            stop_token = re.search('\n\S', out['completion'])
+            if stop_token:
+                out['completion'] = out['completion'][:stop_token.start()]
+
+            new_results.append(out)
+
+    with open(in_jsonl, 'w') as f:
+        for result in new_results:
+            f.write(json.dumps(result) + '\n')
 
 if __name__ == '__main__':
     #get_results(num_tries=10)
-    get_results(num_tries=1)
+    #get_results(num_tries=1)
     #get_results(num_tries=100)
     #asyncio.run(get_results())
+    remove_bloat('remote_data/results_code-davinci-002_1.jsonl')
