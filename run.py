@@ -1,8 +1,18 @@
 """
-Runs the human eval dataset through code-davinci for a pass@k evaluation."""
+Runs the human eval dataset through code-davinci for a pass@k evaluation.
 
-#import aiohttp
-import asyncio
+Code is weird because I originally was using asyncio, then I got heavily
+rate limited by OpenAI since Codex is in a free private beta. So I just
+switched to making the requests sequentially and adding sleeps to prevent
+rate-limits.
+
+I didn't test pass@100 because I started running into the rate limit for
+tokens/minute.
+
+"""
+
+# import aiohttp
+# import asyncio
 import json
 import os
 import re
@@ -20,7 +30,7 @@ HEADERS = {
 }
 
 HUMAN_EVAL = os.environ['PWD'] + '/data/HumanEval.jsonl'
-OUT_FILE = os.environ['PWD'] + '/data/results_{}_{}.jsonl'
+OUT_FILE = os.environ['PWD'] + '/data/results-{}-{}.jsonl'
 
 def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
     if num_tries == 1:
@@ -40,10 +50,9 @@ def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
             json={
                 "prompt": prompt,
                 "model": model,
-                "max_tokens": 256,
+                "max_tokens": 512,
                 "temperature": temperature,
                 "n": num_tries,
-                "stop": "def"
             }
         )
 
@@ -61,41 +70,35 @@ def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
 
 
 def iter_hval():
-    out = []
     with open(HUMAN_EVAL) as f:
         for line in f:
-            out.append(json.loads(line))
-    return out
+            yield json.loads(line)
 
 def get_results(num_tries=10, model='code-davinci-002'):
     out_file = OUT_FILE.format(model, num_tries)
 
     with open(out_file, 'w') as f:
         pass
+
     out_f = open(out_file, 'a')
 
-    def wrapped_future(tid, prompt, future):
-        return tid, prompt, future
-
-    tasks = []
-    completion_times = []
     for line in tqdm.tqdm(iter_hval()):
         start = time.time()
 
         prompt = line['prompt']
         task_id = line['task_id']
-        # future = get_completion(semaphore, prompt, num_tries=num_tries, model=model)
+
+        # Get list of completions with the right model and num tries
         completions = get_completion(prompt, num_tries=num_tries, model=model)
-        completion_times.append(time.time())
 
-        tasks.append((task_id, prompt, completions))
-        # tasks.append(wrapped_future(task_id, prompt, future))
-
+        # Stupid way to sleep because I keep getting rate limited
         time.sleep(max(1, 4-(time.time() - start)))
 
         for idx, completion in enumerate(completions):
             out = {'task_id': task_id, 'completion': completion}
             out_f.write(json.dumps(out) + '\n')
+
+    out_f.close()
 
 
 def remove_bloat(in_jsonl):
@@ -118,5 +121,4 @@ if __name__ == '__main__':
     #get_results(num_tries=10)
     #get_results(num_tries=1)
     #get_results(num_tries=100)
-    #asyncio.run(get_results())
-    remove_bloat('remote_data/results_code-davinci-002_1.jsonl')
+    remove_bloat('remote_data/results-code-davinci-002-1.jsonl')
