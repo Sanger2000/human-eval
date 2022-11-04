@@ -70,9 +70,14 @@ def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
 
 
 def iter_hval():
+    all_lines = []
     with open(HUMAN_EVAL) as f:
         for line in f:
-            yield json.loads(line)
+            all_lines.append(json.loads(line))
+
+    all_lines = all_lines[:3]
+    # Returning a list to get length
+    return all_lines
 
 def get_results(num_tries=10, model='code-davinci-002'):
     out_file = OUT_FILE.format(model, num_tries)
@@ -80,25 +85,23 @@ def get_results(num_tries=10, model='code-davinci-002'):
     with open(out_file, 'w') as f:
         pass
 
-    out_f = open(out_file, 'a')
 
-    for line in tqdm.tqdm(iter_hval()):
-        start = time.time()
+    with open(out_file, 'a') as out_f:
+        for line in tqdm.tqdm(iter_hval()):
+            start = time.time()
 
-        prompt = line['prompt']
-        task_id = line['task_id']
+            prompt = line['prompt']
+            task_id = line['task_id']
 
-        # Get list of completions with the right model and num tries
-        completions = get_completion(prompt, num_tries=num_tries, model=model)
+            # Get list of completions with the right model and num tries
+            completions = get_completion(prompt, num_tries=num_tries, model=model)
 
-        # Stupid way to sleep because I keep getting rate limited
-        time.sleep(max(1, 4-(time.time() - start)))
+            # Stupid way to sleep because I keep getting rate limited
+            time.sleep(max(1, 4-(time.time() - start)))
 
-        for idx, completion in enumerate(completions):
-            out = {'task_id': task_id, 'completion': completion}
-            out_f.write(json.dumps(out) + '\n')
-
-    out_f.close()
+            for idx, completion in enumerate(completions):
+                out = {'task_id': task_id, 'completion': completion}
+                out_f.write(json.dumps(out) + '\n')
 
 
 def remove_bloat(in_jsonl):
@@ -119,6 +122,6 @@ def remove_bloat(in_jsonl):
 
 if __name__ == '__main__':
     #get_results(num_tries=10)
-    #get_results(num_tries=1)
     #get_results(num_tries=100)
-    remove_bloat('remote_data/results-code-davinci-002-1.jsonl')
+    get_results(num_tries=1)
+    remove_bloat('data/results-code-davinci-002-1.jsonl')
