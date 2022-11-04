@@ -31,6 +31,9 @@ def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
     else:
         raise ValueError("num_tries must be 1, 10, or 100")
 
+    print('temp', temperature)
+    print('num tries', num_tries)
+
     with requests.Session() as session:
         result = session.post(
             'https://api.openai.com/v1/completions',
@@ -38,7 +41,7 @@ def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
             json={
                 "prompt": prompt,
                 "model": model,
-                "max_tokens": 256,
+                "max_tokens": 512,
                 "temperature": temperature,
                 "n": num_tries,
             }
@@ -98,7 +101,7 @@ def get_results(num_tries=10, model='code-davinci-002'):
 
 
 if __name__ == '__main__':
-    get_results(num_tries=10)
+    #get_results(num_tries=10)
     get_results(num_tries=1)
-    get_results(num_tries=100)
+    #get_results(num_tries=100)
     #asyncio.run(get_results())
