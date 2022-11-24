@@ -75,7 +75,7 @@ def iter_hval():
         for line in f:
             all_lines.append(json.loads(line))
 
-    all_lines = all_lines[:3]
+    #all_lines = all_lines[:3]
     # Returning a list to get length
     return all_lines
 
@@ -102,7 +102,8 @@ def get_results(num_tries=10, model='code-davinci-002'):
             for idx, completion in enumerate(completions):
                 out = {'task_id': task_id, 'completion': completion}
                 out_f.write(json.dumps(out) + '\n')
-
+    
+    remove_bloat(out_file)
 
 def remove_bloat(in_jsonl):
     new_results = []
@@ -123,5 +124,4 @@ def remove_bloat(in_jsonl):
 if __name__ == '__main__':
     #get_results(num_tries=10)
     #get_results(num_tries=100)
-    get_results(num_tries=1)
-    remove_bloat('data/results-code-davinci-002-1.jsonl')
+    get_results(num_tries=10, model='code-cushman-001')
