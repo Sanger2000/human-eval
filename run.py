@@ -119,6 +119,7 @@ Please follow the template by repeating the original function, including the <|s
             for out in outs:
                 out_f.write(json.dumps(out) + '\n')
 
+    remove_bloat(out_file)
 
 
 def remove_bloat(in_jsonl):
