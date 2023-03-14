@@ -1,26 +1,23 @@
 """
 Runs the human eval dataset through code-davinci for a pass@k evaluation.
 
-Code is weird because I originally was using asyncio, then I got heavily
-rate limited by OpenAI since Codex is in a free private beta. So I just
-switched to making the requests sequentially and adding sleeps to prevent
-rate-limits.
-
 I didn't test pass@100 because I started running into the rate limit for
 tokens/minute.
 
 """
 
-# import aiohttp
-# import asyncio
+import aiohttp
+import asyncio
 import json
 import os
 import re
 import requests
 import tqdm
 import time
+import openai
 
 from dotenv import load_dotenv
+from prompt_utils import parse_prompt, to_prompt
 
 load_dotenv()
 
@@ -30,11 +27,12 @@ HEADERS = {
 }
 
 HUMAN_EVAL = os.environ['PWD'] + '/data/HumanEval.jsonl'
-OUT_FILE = os.environ['PWD'] + '/data/results-{}-{}.jsonl'
+OUT_FILE = os.environ['PWD'] + '/temp2/results-{}-{}.jsonl'
 
-def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
+async def get_completion(sem, prompt, num_tries=1, model='code-davinci-002', num_errors=0):
+    #print(num_tries)
     if num_tries == 1:
-        temperature = 0.2
+        temperature = 0.0
     elif num_tries == 10:
         temperature = 0.6
     elif num_tries == 100:
@@ -43,30 +41,17 @@ def get_completion(prompt, num_tries=1, model='code-davinci-002', num_errors=0):
         raise ValueError("num_tries must be 1, 10, or 100")
 
 
-    with requests.Session() as session:
-        result = session.post(
-            'https://api.openai.com/v1/completions',
-            headers=HEADERS,
-            json={
-                "prompt": prompt,
-                "model": model,
-                "max_tokens": 512,
-                "temperature": temperature,
-                "n": num_tries,
-            }
-        )
+    async with sem:
+        if model in {'gpt-3.5-turbo', 'gpt-4'}:
+            messages = parse_prompt(prompt)
+            completion = await openai.ChatCompletion.acreate(messages=messages, model=model, temperature=temperature, max_tokens=1000, n=num_tries)
+            choices = completion.choices
+            return [choice['message']['content'] for choice in choices]
 
-        json_out = result.json()
-        try:
-            return [choice['text'] for choice in json_out['choices']]
-        except:
-            print(json_out)
-            if num_errors == 2:
-                raise
-            else:
-                time.sleep(30*(num_errors+1)+1)
-                return get_completion(prompt, num_tries, model, num_errors+1)
-
+        else:
+            completion = await openai.Completion.acreate(prompt=prompt, model=model, temperature=temperature, max_tokens=1000, n=num_tries)
+            choices = completion.choices
+            return [choice['text'] for choice in choices]
 
 
 def iter_hval():
@@ -75,33 +60,65 @@ def iter_hval():
         for line in f:
             all_lines.append(json.loads(line))
 
-    all_lines = all_lines[:3]
-    # Returning a list to get length
     return all_lines
 
-def get_results(num_tries=10, model='code-davinci-002'):
+async def get_results(num_tries=10, model='code-davinci-002'):
     out_file = OUT_FILE.format(model, num_tries)
 
     with open(out_file, 'w') as f:
         pass
 
+    sem = asyncio.Semaphore(10)
+
+    async def output(prompt, task_id):
+        full_prompt = f'''
+<|im_start|>system<|im_sep|>
+You may only respond with code and comments and the <|start_of_completion|> token.
+<|im_end|>
+<|im_start|>user<|im_sep|>
+You must complete the python function I give you. You will write the completion in the following form:
+
+${{ORIG_FUNCTION}}
+    <|start_of_completion|>
+${{INSERT_COMPLETION}}
+
+ORIG_FUNCTION=
+{prompt}
+
+Please follow the template by repeating the original function, including the <|start_of_completion|> token, then writing the completion.
+<|im_end|>
+'''
+
+        async with sem:
+            completions = await get_completion(sem, full_prompt, num_tries=num_tries, model=model)
+
+        outs = []
+        for idx, completion in enumerate(completions):
+            if '<|start_of_completion|>' in completion:
+                completion = completion.split('<|start_of_completion|>')[1]
+            else:
+                print('no <|start_of_completion|> token')
+                print(completion)
+                print('______')
+                print(prompt)
+                print('')
+            outs.append({'task_id': task_id, 'completion': completion})
+
+        return outs
+
+
+    futures = []
+    for line in tqdm.tqdm(iter_hval()):
+        prompt = line['prompt']
+        task_id = line['task_id']
+        futures.append(output(prompt, task_id))
 
     with open(out_file, 'a') as out_f:
-        for line in tqdm.tqdm(iter_hval()):
-            start = time.time()
-
-            prompt = line['prompt']
-            task_id = line['task_id']
-
-            # Get list of completions with the right model and num tries
-            completions = get_completion(prompt, num_tries=num_tries, model=model)
-
-            # Stupid way to sleep because I keep getting rate limited
-            time.sleep(max(1, 4-(time.time() - start)))
-
-            for idx, completion in enumerate(completions):
-                out = {'task_id': task_id, 'completion': completion}
+        for future in tqdm.tqdm(asyncio.as_completed(futures), total=len(futures)):
+            outs = await future
+            for out in outs:
                 out_f.write(json.dumps(out) + '\n')
+
 
 
 def remove_bloat(in_jsonl):
@@ -109,10 +126,16 @@ def remove_bloat(in_jsonl):
     with open(in_jsonl, 'r') as f:
         for line in f:
             out = json.loads(line)
-            new_completion = ''
+            special_token = re.search('\<\|\S+\|\>', out['completion'])
+
+            if special_token:
+                print(special_token)
+                out['completion'] = out['completion'][:special_token.start()]
+
             stop_token = re.search('\n\S', out['completion'])
             if stop_token:
                 out['completion'] = out['completion'][:stop_token.start()]
+
 
             new_results.append(out)
 
@@ -121,7 +144,11 @@ def remove_bloat(in_jsonl):
             f.write(json.dumps(result) + '\n')
 
 if __name__ == '__main__':
-    #get_results(num_tries=10)
-    #get_results(num_tries=100)
-    get_results(num_tries=1)
-    remove_bloat('data/results-code-davinci-002-1.jsonl')
+    num_tries=1
+    model = 'gpt-4'
+
+    asyncio.run(get_results(num_tries=num_tries, model=model))
+
+    out_f = OUT_FILE.format(model, num_tries)
+    remove_bloat(out_f)
+    print(out_f)
